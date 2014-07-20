@@ -27,8 +27,8 @@ from scipy import linalg
 
 from ..base import BaseEstimator, TransformerMixin
 from ..externals.six.moves import xrange
-from ..utils import array2d, check_arrays, check_random_state
-from ..utils.extmath import fast_logdet, fast_dot, randomized_svd
+from ..utils import check_array, check_random_state
+from ..utils.extmath import fast_logdet, fast_dot, randomized_svd, squared_norm
 from ..utils import ConvergenceWarning
 
 
@@ -154,8 +154,7 @@ class FactorAnalysis(BaseEstimator, TransformerMixin):
         -------
         self
         """
-        X = array2d(check_arrays(X, copy=self.copy, sparse_format='dense',
-                    dtype=np.float)[0])
+        X = check_array(X, copy=self.copy, dtype=np.float)
 
         n_samples, n_features = X.shape
         n_components = self.n_components
@@ -188,7 +187,7 @@ class FactorAnalysis(BaseEstimator, TransformerMixin):
             def my_svd(X):
                 _, s, V = linalg.svd(X, full_matrices=False)
                 return (s[:n_components], V[:n_components],
-                        np.dot(s[n_components:].flat, s[n_components:].flat))
+                        squared_norm(s[n_components:]))
         elif self.svd_method == 'randomized':
             random_state = check_random_state(self.random_state)
 
@@ -196,7 +195,7 @@ class FactorAnalysis(BaseEstimator, TransformerMixin):
                 _, s, V = randomized_svd(X, n_components,
                                          random_state=random_state,
                                          n_iter=self.iterated_power)
-                return s, V, np.dot(X.flat, X.flat) - np.dot(s, s)
+                return s, V, squared_norm(X) - squared_norm(s)
         else:
             raise ValueError('SVD method %s is not supported. Please consider'
                              ' the documentation' % self.svd_method)
@@ -248,7 +247,7 @@ class FactorAnalysis(BaseEstimator, TransformerMixin):
         X_new : array-like, shape (n_samples, n_components)
             The latent variables of X.
         """
-        X = array2d(X)
+        X = check_array(X)
         Ih = np.eye(len(self.components_))
 
         X_transformed = X - self.mean_

@@ -24,7 +24,7 @@ from sklearn.utils.extmath import make_nonnegative
 from sklearn.utils.extmath import norm
 
 from sklearn.utils.validation import assert_all_finite
-from sklearn.utils.validation import check_arrays
+from sklearn.utils.validation import check_array
 
 from .utils import check_array_ndim
 
@@ -108,9 +108,9 @@ class BaseSpectral(six.with_metaclass(ABCMeta, BaseEstimator,
     def _check_parameters(self):
         legal_svd_methods = ('randomized', 'arpack')
         if self.svd_method not in legal_svd_methods:
-            raise ValueError("Unknown SVD method: '{}'. svd_method must be"
-                             " one of {}.".format(self.svd_method,
-                                                  legal_svd_methods))
+            raise ValueError("Unknown SVD method: '{0}'. svd_method must be"
+                             " one of {1}.".format(self.svd_method,
+                                                   legal_svd_methods))
 
     def fit(self, X):
         """Creates a biclustering for X.
@@ -120,7 +120,7 @@ class BaseSpectral(six.with_metaclass(ABCMeta, BaseEstimator,
         X : array-like, shape (n_samples, n_features)
 
         """
-        X, = check_arrays(X, sparse_format='csr', dtype=np.float64)
+        X = check_array(X, accept_sparse='csr', dtype=np.float64)
         check_array_ndim(X)
         self._check_parameters()
         self._fit(X)
@@ -237,8 +237,8 @@ class SpectralCoclustering(BaseSpectral):
     Attributes
     ----------
     `rows_` : array-like, shape (n_row_clusters, n_rows)
-        Results of the clustering. `rows[i, r]` is True if cluster `i`
-        contains row `r`. Available only after calling ``fit``.
+        Results of the clustering. `rows[i, r]` is True if
+        cluster `i` contains row `r`. Available only after calling ``fit``.
 
     `columns_` : array-like, shape (n_column_clusters, n_columns)
         Results of the clustering, like `rows`.
@@ -365,8 +365,8 @@ class SpectralBiclustering(BaseSpectral):
     Attributes
     ----------
     `rows_` : array-like, shape (n_row_clusters, n_rows)
-        Results of the clustering. `rows[i, r]` is True if cluster `i`
-        contains row `r`. Available only after calling ``fit``.
+        Results of the clustering. `rows[i, r]` is True if
+        cluster `i` contains row `r`. Available only after calling ``fit``.
 
     `columns_` : array-like, shape (n_column_clusters, n_columns)
         Results of the clustering, like `rows`.
@@ -405,8 +405,8 @@ class SpectralBiclustering(BaseSpectral):
         super(SpectralBiclustering, self)._check_parameters()
         legal_methods = ('bistochastic', 'scale', 'log')
         if self.method not in legal_methods:
-            raise ValueError("Unknown method: '{}'. method must be"
-                             " one of {}.".format(self.method, legal_methods))
+            raise ValueError("Unknown method: '{0}'. method must be"
+                             " one of {1}.".format(self.method, legal_methods))
         try:
             int(self.n_clusters)
         except TypeError:

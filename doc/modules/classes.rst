@@ -62,7 +62,9 @@ Classes
    :template: class.rst
 
    cluster.AffinityPropagation
+   cluster.AgglomerativeClustering
    cluster.DBSCAN
+   cluster.FeatureAgglomeration
    cluster.KMeans
    cluster.MiniBatchKMeans
    cluster.MeanShift
@@ -159,7 +161,6 @@ Classes
    :toctree: generated/
    :template: class.rst
 
-   cross_validation.Bootstrap
    cross_validation.KFold
    cross_validation.LeaveOneLabelOut
    cross_validation.LeaveOneOut
@@ -446,6 +447,7 @@ From text
    :toctree: generated/
    :template: class.rst
 
+   feature_selection.GenericUnivariateSelect
    feature_selection.SelectPercentile
    feature_selection.SelectKBest
    feature_selection.SelectFpr
@@ -453,6 +455,7 @@ From text
    feature_selection.SelectFwe
    feature_selection.RFE
    feature_selection.RFECV
+   feature_selection.VarianceThreshold
 
 .. autosummary::
    :toctree: generated/
@@ -520,27 +523,6 @@ From text
    grid_search.RandomizedSearchCV
 
 
-.. _hmm_ref:
-
-:mod:`sklearn.hmm`: Hidden Markov Models
-========================================
-
-.. automodule:: sklearn.hmm
-   :no-members:
-   :no-inherited-members:
-
-**User guide:** See the :ref:`hmm` section for further details.
-
-.. currentmodule:: sklearn
-
-.. autosummary::
-   :toctree: generated/
-   :template: class.rst
-
-   hmm.GaussianHMM
-   hmm.MultinomialHMM
-   hmm.GMMHMM
-
 .. _isotonic_ref:
 
 :mod:`sklearn.isotonic`: Isotonic regression
@@ -565,6 +547,7 @@ From text
    :template: function.rst
 
    isotonic.isotonic_regression
+   isotonic.check_increasing
 
 .. _kernel_approximation_ref:
 
@@ -588,24 +571,6 @@ From text
    kernel_approximation.RBFSampler
    kernel_approximation.SkewedChi2Sampler
 
-:mod:`sklearn.semi_supervised` Semi-Supervised Learning
-========================================================
-
-.. automodule:: sklearn.semi_supervised
-   :no-members:
-   :no-inherited-members:
-
-**User guide:** See the :ref:`semi_supervised` section for further details.
-
-.. currentmodule:: sklearn
-
-.. autosummary::
-   :toctree: generated/
-   :template: class.rst
-
-   semi_supervised.LabelPropagation
-   semi_supervised.LabelSpreading
-
 .. _lda_ref:
 
 :mod:`sklearn.lda`: Linear Discriminant Analysis
@@ -625,6 +590,24 @@ From text
 
    lda.LDA
 
+
+.. _learning_curve_ref:
+
+:mod:`sklearn.learning_curve` Learning curve evaluation
+=======================================================
+
+.. automodule:: sklearn.learning_curve
+   :no-members:
+   :no-inherited-members:
+
+.. currentmodule:: sklearn
+
+.. autosummary::
+   :toctree: generated/
+   :template: function.rst
+
+   learning_curve.learning_curve
+   learning_curve.validation_curve
 
 .. _linear_model_ref:
 
@@ -658,6 +641,8 @@ From text
    linear_model.LogisticRegression
    linear_model.MultiTaskLasso
    linear_model.MultiTaskElasticNet
+   linear_model.MultiTaskLassoCV
+   linear_model.MultiTaskElasticNetCV
    linear_model.OrthogonalMatchingPursuit
    linear_model.OrthogonalMatchingPursuitCV
    linear_model.PassiveAggressiveClassifier
@@ -665,6 +650,7 @@ From text
    linear_model.Perceptron
    linear_model.RandomizedLasso
    linear_model.RandomizedLogisticRegression
+   linear_model.RANSACRegressor
    linear_model.Ridge
    linear_model.RidgeClassifier
    linear_model.RidgeClassifierCV
@@ -704,6 +690,7 @@ From text
     manifold.Isomap
     manifold.MDS
     manifold.SpectralEmbedding
+    manifold.TSNE
 
 .. autosummary::
     :toctree: generated
@@ -783,6 +770,18 @@ details.
    metrics.mean_squared_error
    metrics.r2_score
 
+Multilabel ranking metrics
+--------------------------
+See the :ref:`multilabel_ranking_metrics` section of the user guide for further
+details.
+
+.. autosummary::
+   :toctree: generated/
+   :template: function.rst
+
+   metrics.label_ranking_average_precision_score
+
+
 
 Clustering metrics
 ------------------
@@ -850,6 +849,9 @@ Pairwise metrics
    metrics.pairwise.pairwise_kernels
    metrics.pairwise.polynomial_kernel
    metrics.pairwise.rbf_kernel
+   metrics.pairwise_distances
+   metrics.pairwise_distances_argmin
+   metrics.pairwise_distances_argmin_min
 
 
 .. _mixture_ref:
@@ -894,17 +896,6 @@ Pairwise metrics
     multiclass.OneVsRestClassifier
     multiclass.OneVsOneClassifier
     multiclass.OutputCodeClassifier
-
-.. autosummary::
-    :toctree: generated
-    :template: function.rst
-
-    multiclass.fit_ovr
-    multiclass.predict_ovr
-    multiclass.fit_ovo
-    multiclass.predict_ovo
-    multiclass.fit_ecoc
-    multiclass.predict_ecoc
 
 .. _naive_bayes_ref:
 
@@ -1054,10 +1045,12 @@ Pairwise metrics
    preprocessing.KernelCenterer
    preprocessing.LabelBinarizer
    preprocessing.LabelEncoder
+   preprocessing.MultiLabelBinarizer
    preprocessing.MinMaxScaler
    preprocessing.Normalizer
    preprocessing.OneHotEncoder
    preprocessing.StandardScaler
+   preprocessing.PolynomialFeatures
 
 .. autosummary::
    :toctree: generated/
@@ -1112,6 +1105,27 @@ Pairwise metrics
    :template: function.rst
 
    random_projection.johnson_lindenstrauss_min_dim
+
+
+.. _semi_supervised_ref:
+
+:mod:`sklearn.semi_supervised` Semi-Supervised Learning
+========================================================
+
+.. automodule:: sklearn.semi_supervised
+   :no-members:
+   :no-inherited-members:
+
+**User guide:** See the :ref:`semi_supervised` section for further details.
+
+.. currentmodule:: sklearn
+
+.. autosummary::
+   :toctree: generated/
+   :template: class.rst
+
+   semi_supervised.LabelPropagation
+   semi_supervised.LabelSpreading
 
 
 .. _svm_ref:

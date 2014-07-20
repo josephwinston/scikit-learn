@@ -13,6 +13,7 @@ from sklearn.utils.testing import assert_array_almost_equal
 from sklearn.utils.testing import assert_true
 from sklearn.utils.testing import assert_less
 from sklearn.utils.testing import assert_raises
+from sklearn.utils.testing import assert_warns
 
 from sklearn.datasets import make_classification
 from sklearn.datasets import make_multilabel_classification
@@ -51,7 +52,7 @@ def test_make_classification():
 
 def test_make_classification_informative_features():
     """Test the construction of informative features in make_classification
-    
+
     Also tests `n_clusters_per_class`, `n_classes`, `hypercube` and
     fully-specified `weights`.
     """
@@ -62,12 +63,12 @@ def test_make_classification_informative_features():
                    n_repeated=0, flip_y=0, shift=0, scale=1, shuffle=False)
 
     for n_informative, weights, n_clusters_per_class in [(2, [1], 1),
-                                                           (2, [1/3] * 3, 1),
-                                                           (2, [1/4] * 4, 1),
-                                                           (2, [1/2] * 2, 2),
-                                                           (2, [3/4, 1/4], 2),
-                                                           (10, [1/3] * 3, 10)
-                                                           ]:
+                                                         (2, [1/3] * 3, 1),
+                                                         (2, [1/4] * 4, 1),
+                                                         (2, [1/2] * 2, 2),
+                                                         (2, [3/4, 1/4], 2),
+                                                         (10, [1/3] * 3, 10)
+                                                         ]:
         n_classes = len(weights)
         n_clusters = n_classes * n_clusters_per_class
         n_samples = n_clusters * 50
@@ -84,7 +85,7 @@ def test_make_classification_informative_features():
 
             # Cluster by sign, viewed as strings to allow uniquing
             signs = np.sign(X)
-            signs = signs.view(dtype='|S{}'.format(signs.strides[0]))
+            signs = signs.view(dtype='|S{0}'.format(signs.strides[0]))
             unique_signs, cluster_index = np.unique(signs,
                                                     return_inverse=True)
 
@@ -131,11 +132,11 @@ def test_make_classification_informative_features():
                   n_clusters_per_class=2)
 
 
-def test_make_multilabel_classification():
+def test_make_multilabel_classification_return_sequences():
     for allow_unlabeled, min_length in zip((True, False), (0, 1)):
-        X, Y = make_multilabel_classification(n_samples=100, n_features=20,
-                                              n_classes=3, random_state=0,
-                                              allow_unlabeled=allow_unlabeled)
+        X, Y = assert_warns(DeprecationWarning, make_multilabel_classification,
+                            n_samples=100, n_features=20, n_classes=3,
+                            random_state=0, allow_unlabeled=allow_unlabeled)
         assert_equal(X.shape, (100, 20), "X shape mismatch")
         if not allow_unlabeled:
             assert_equal(max([max(y) for y in Y]), 2)
@@ -171,8 +172,12 @@ def test_make_regression():
     assert_equal(c.shape, (10,), "coef shape mismatch")
     assert_equal(sum(c != 0.0), 3, "Unexpected number of informative features")
 
-    # Test that y ~= np.dot(X, c) + bias + N(0, 1.0)
+    # Test that y ~= np.dot(X, c) + bias + N(0, 1.0).
     assert_almost_equal(np.std(y - np.dot(X, c)), 1.0, decimal=1)
+
+    # Test with small number of features.
+    X, y = make_regression(n_samples=100, n_features=1)  # n_informative=3
+    assert_equal(X.shape, (100, 1))
 
 
 def test_make_regression_multitarget():
@@ -255,7 +260,7 @@ def test_make_sparse_coded_signal():
     assert_equal(X.shape, (8, 5), "X shape mismatch")
     for col in X.T:
         assert_equal(len(np.flatnonzero(col)), 3, 'Non-zero coefs mismatch')
-    assert_array_equal(np.dot(D, X), Y)
+    assert_array_almost_equal(np.dot(D, X), Y)
     assert_array_almost_equal(np.sqrt((D ** 2).sum(axis=0)),
                               np.ones(D.shape[1]))
 
@@ -284,8 +289,8 @@ def test_make_swiss_roll():
 
     assert_equal(X.shape, (5, 3), "X shape mismatch")
     assert_equal(t.shape, (5,), "t shape mismatch")
-    assert_array_equal(X[:, 0], t * np.cos(t))
-    assert_array_equal(X[:, 2], t * np.sin(t))
+    assert_array_almost_equal(X[:, 0], t * np.cos(t))
+    assert_array_almost_equal(X[:, 2], t * np.sin(t))
 
 
 def test_make_s_curve():
@@ -293,8 +298,8 @@ def test_make_s_curve():
 
     assert_equal(X.shape, (5, 3), "X shape mismatch")
     assert_equal(t.shape, (5,), "t shape mismatch")
-    assert_array_equal(X[:, 0], np.sin(t))
-    assert_array_equal(X[:, 2], np.sign(t) * (np.cos(t) - 1))
+    assert_array_almost_equal(X[:, 0], np.sin(t))
+    assert_array_almost_equal(X[:, 2], np.sign(t) * (np.cos(t) - 1))
 
 
 def test_make_biclusters():
@@ -309,7 +314,7 @@ def test_make_biclusters():
 
     X2, _, _ = make_biclusters(shape=(100, 100), n_clusters=4,
                                shuffle=True, random_state=0)
-    assert_array_equal(X, X2)
+    assert_array_almost_equal(X, X2)
 
 
 def test_make_checkerboard():

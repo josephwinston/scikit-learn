@@ -5,8 +5,10 @@
 from sys import version_info
 
 import numpy as np
-from scipy import interpolate
+from scipy import interpolate, sparse
+from copy import deepcopy
 
+from sklearn.datasets import load_boston
 from sklearn.utils.testing import assert_array_almost_equal
 from sklearn.utils.testing import assert_almost_equal
 from sklearn.utils.testing import assert_equal
@@ -19,7 +21,7 @@ from sklearn.utils.testing import ignore_warnings
 
 from sklearn.linear_model.coordinate_descent import Lasso, \
     LassoCV, ElasticNet, ElasticNetCV, MultiTaskLasso, MultiTaskElasticNet, \
-    lasso_path
+    MultiTaskElasticNetCV, MultiTaskLassoCV, lasso_path
 from sklearn.linear_model import LassoLarsCV, lars_path
 
 
@@ -179,6 +181,23 @@ def test_lasso_cv():
     assert_greater(clf.score(X_test, y_test), 0.99)
 
 
+def test_lasso_cv_positive_constraint():
+    X, y, X_test, y_test = build_dataset()
+    max_iter = 500
+
+    # Ensure the unconstrained fit has a negative coefficient
+    clf_unconstrained = LassoCV(n_alphas=3, eps=1e-1, max_iter=max_iter, cv=2,
+                                n_jobs=1)
+    clf_unconstrained.fit(X, y)
+    assert_true(min(clf_unconstrained.coef_) < 0)
+
+    # On same data, constrained fit has non-negative coefficients
+    clf_constrained = LassoCV(n_alphas=3, eps=1e-1, max_iter=max_iter,
+                              positive=True, cv=2, n_jobs=1)
+    clf_constrained.fit(X, y)
+    assert_true(min(clf_constrained.coef_) >= 0)
+
+
 def test_lasso_path_return_models_vs_new_return_gives_same_coefficients():
     # Test that lasso_path with lars_path style output gives the
     # same result
@@ -220,7 +239,8 @@ def test_enet_path():
 
     # Here we have a small number of iterations, and thus the
     # ElasticNet might not converge. This is to speed up tests
-    clf = ElasticNetCV(n_alphas=5, eps=2e-3, l1_ratio=[0.5, 0.7], cv=3,
+    clf = ElasticNetCV(alphas=[0.01, 0.05, 0.1], eps=2e-3,
+                       l1_ratio=[0.5, 0.7], cv=3,
                        max_iter=max_iter)
     ignore_warnings(clf.fit)(X, y)
     # Well-conditioned settings, we should have selected our
@@ -230,10 +250,10 @@ def test_enet_path():
     # that is closer to ridge than to lasso
     assert_equal(clf.l1_ratio_, min(clf.l1_ratio))
 
-    clf = ElasticNetCV(n_alphas=5, eps=2e-3, l1_ratio=[0.5, 0.7], cv=3,
+    clf = ElasticNetCV(alphas=[0.01, 0.05, 0.1], eps=2e-3,
+                       l1_ratio=[0.5, 0.7], cv=3,
                        max_iter=max_iter, precompute=True)
     ignore_warnings(clf.fit)(X, y)
-
 
     # Well-conditioned settings, we should have selected our
     # smallest penalty
@@ -245,6 +265,26 @@ def test_enet_path():
     # We are in well-conditioned settings with low noise: we should
     # have a good test-set performance
     assert_greater(clf.score(X_test, y_test), 0.99)
+
+    # Multi-output/target case
+    X, y, X_test, y_test = build_dataset(n_features=10, n_targets=3)
+    clf = MultiTaskElasticNetCV(n_alphas=5, eps=2e-3, l1_ratio=[0.5, 0.7],
+                                cv=3, max_iter=max_iter)
+    ignore_warnings(clf.fit)(X, y)
+    # We are in well-conditioned settings with low noise: we should
+    # have a good test-set performance
+    assert_greater(clf.score(X_test, y_test), 0.99)
+    assert_equal(clf.coef_.shape, (3, 10))
+
+    # Mono-output should have same cross-validated alpha_ and l1_ratio_
+    # in both cases.
+    X, y, _, _ = build_dataset(n_features=10)
+    clf1 = ElasticNetCV(n_alphas=5, eps=2e-3, l1_ratio=[0.5, 0.7])
+    clf1.fit(X, y)
+    clf2 = MultiTaskElasticNetCV(n_alphas=5, eps=2e-3, l1_ratio=[0.5, 0.7])
+    clf2.fit(X, y[:, np.newaxis])
+    assert_almost_equal(clf1.l1_ratio_, clf2.l1_ratio_)
+    assert_almost_equal(clf1.alpha_, clf2.alpha_)
 
 
 def test_path_parameters():
@@ -300,6 +340,24 @@ def test_enet_positive_constraint():
     assert_true(min(enet.coef_) >= 0)
 
 
+def test_enet_cv_positive_constraint():
+    X, y, X_test, y_test = build_dataset()
+    max_iter = 500
+
+    # Ensure the unconstrained fit has a negative coefficient
+    enetcv_unconstrained = ElasticNetCV(n_alphas=3, eps=1e-1,
+                                        max_iter=max_iter,
+                                        cv=2, n_jobs=1)
+    enetcv_unconstrained.fit(X, y)
+    assert_true(min(enetcv_unconstrained.coef_) < 0)
+
+    # On same data, constrained fit has non-negative coefficients
+    enetcv_constrained = ElasticNetCV(n_alphas=3, eps=1e-1, max_iter=max_iter,
+                                      cv=2, positive=True, n_jobs=1)
+    enetcv_constrained.fit(X, y)
+    assert_true(min(enetcv_constrained.coef_) >= 0)
+
+
 def test_multi_task_lasso_and_enet():
     X, y, X_test, y_test = build_dataset()
     Y = np.c_[y, y]
@@ -334,6 +392,127 @@ def test_multioutput_enetcv_error():
     y = np.random.randn(10, 2)
     clf = ElasticNetCV()
     assert_raises(ValueError, clf.fit, X, y)
+
+
+def test_multitask_enet_and_lasso_cv():
+    X, y, _, _ = build_dataset(n_features=100, n_targets=3)
+    clf = MultiTaskElasticNetCV().fit(X, y)
+    assert_almost_equal(clf.alpha_, 0.00556, 3)
+    clf = MultiTaskLassoCV().fit(X, y)
+    assert_almost_equal(clf.alpha_, 0.00278, 3)
+
+    X, y, _, _ = build_dataset(n_targets=3)
+    clf = MultiTaskElasticNetCV(n_alphas=50, eps=1e-3, max_iter=100,
+                                l1_ratio=[0.3, 0.5], tol=1e-3)
+    clf.fit(X, y)
+    assert_equal(0.5, clf.l1_ratio_)
+    assert_equal((3, X.shape[1]), clf.coef_.shape)
+    assert_equal((3, ), clf.intercept_.shape)
+    assert_equal((2, 50, 3), clf.mse_path_.shape)
+    assert_equal((2, 50), clf.alphas_.shape)
+
+    X, y, _, _ = build_dataset(n_targets=3)
+    clf = MultiTaskLassoCV(n_alphas=50, eps=1e-3, max_iter=100, tol=1e-3)
+    clf.fit(X, y)
+    assert_equal((3, X.shape[1]), clf.coef_.shape)
+    assert_equal((3, ), clf.intercept_.shape)
+    assert_equal((50, 3), clf.mse_path_.shape)
+    assert_equal(50, len(clf.alphas_))
+
+
+def test_1d_multioutput_enet_and_multitask_enet_cv():
+    X, y, _, _ = build_dataset(n_features=10)
+    y = y[:, np.newaxis]
+    clf = ElasticNetCV(n_alphas=5, eps=2e-3, l1_ratio=[0.5, 0.7])
+    clf.fit(X, y[:, 0])
+    clf1 = MultiTaskElasticNetCV(n_alphas=5, eps=2e-3, l1_ratio=[0.5, 0.7])
+    clf1.fit(X, y)
+    assert_almost_equal(clf.l1_ratio_, clf1.l1_ratio_)
+    assert_almost_equal(clf.alpha_, clf1.alpha_)
+    assert_almost_equal(clf.coef_, clf1.coef_[0])
+    assert_almost_equal(clf.intercept_, clf1.intercept_[0])
+
+
+def test_1d_multioutput_lasso_and_multitask_lasso_cv():
+    X, y, _, _ = build_dataset(n_features=10)
+    y = y[:, np.newaxis]
+    clf = LassoCV(n_alphas=5, eps=2e-3)
+    clf.fit(X, y[:, 0])
+    clf1 = MultiTaskLassoCV(n_alphas=5, eps=2e-3)
+    clf1.fit(X, y)
+    assert_almost_equal(clf.alpha_, clf1.alpha_)
+    assert_almost_equal(clf.coef_, clf1.coef_[0])
+    assert_almost_equal(clf.intercept_, clf1.intercept_[0])
+
+
+def test_sparse_input_dtype_enet_and_lassocv():
+    X, y, _, _ = build_dataset(n_features=10)
+    clf = ElasticNetCV(n_alphas=5)
+    clf.fit(sparse.csr_matrix(X), y)
+    clf1 = ElasticNetCV(n_alphas=5)
+    clf1.fit(sparse.csr_matrix(X, dtype=np.float32), y)
+    assert_almost_equal(clf.alpha_, clf1.alpha_, decimal=6)
+    assert_almost_equal(clf.coef_, clf1.coef_, decimal=6)
+
+    clf = LassoCV(n_alphas=5)
+    clf.fit(sparse.csr_matrix(X), y)
+    clf1 = LassoCV(n_alphas=5)
+    clf1.fit(sparse.csr_matrix(X, dtype=np.float32), y)
+    assert_almost_equal(clf.alpha_, clf1.alpha_, decimal=6)
+    assert_almost_equal(clf.coef_, clf1.coef_, decimal=6)
+
+
+def test_precompute_invalid_argument():
+    X, y, _, _ = build_dataset()
+    for clf in [ElasticNetCV(precompute="invalid"),
+                LassoCV(precompute="invalid")]:
+        assert_raises(ValueError, clf.fit, X, y)
+
+
+def test_warm_start_convergence():
+    X, y, _, _ = build_dataset()
+    model = ElasticNet(alpha=1e-3, tol=1e-3).fit(X, y)
+    n_iter_reference = model.n_iter_
+
+    # This dataset is not trivial enough for the model to converge in one pass.
+    assert_greater(n_iter_reference, 2)
+
+    # Check that n_iter_ is invariant to multiple calls to fit
+    # when warm_start=False, all else being equal.
+    model.fit(X, y)
+    n_iter_cold_start = model.n_iter_
+    assert_equal(n_iter_cold_start, n_iter_reference)
+
+    # Fit the same model again, using a warm start: the optimizer just performs
+    # a single pass before checking that it has already converged
+    model.set_params(warm_start=True)
+    model.fit(X, y)
+    n_iter_warm_start = model.n_iter_
+    assert_equal(n_iter_warm_start, 1)
+
+
+def test_warm_start_convergence_with_regularizer_decrement():
+    boston = load_boston()
+    X, y = boston.data, boston.target
+
+    # Train a model to converge on a lightly regularized problem
+    final_alpha = 1e-5
+    low_reg_model = ElasticNet(alpha=final_alpha).fit(X, y)
+
+    # Fitting a new model on a more regularized version of the same problem.
+    # Fitting with high regularization is easier it should converge faster
+    # in general.
+    high_reg_model = ElasticNet(alpha=final_alpha * 10).fit(X, y)
+    assert_greater(low_reg_model.n_iter_, high_reg_model.n_iter_)
+
+    # Fit the solution to the original, less regularized version of the
+    # problem but from the solution of the highly regularized variant of
+    # the problem as a better starting point. This should also converge
+    # faster than the original model that starts from zero.
+    warm_low_reg_model = deepcopy(high_reg_model)
+    warm_low_reg_model.set_params(warm_start=True, alpha=final_alpha)
+    warm_low_reg_model.fit(X, y)
+    assert_greater(low_reg_model.n_iter_, warm_low_reg_model.n_iter_)
 
 
 if __name__ == '__main__':

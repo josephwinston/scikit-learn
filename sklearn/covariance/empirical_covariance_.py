@@ -16,13 +16,13 @@ import numpy as np
 from scipy import linalg
 
 from ..base import BaseEstimator
-from ..utils import array2d
+from ..utils import check_array
 from ..utils.extmath import fast_logdet, pinvh
 
 
 def log_likelihood(emp_cov, precision):
     """Computes the sample mean of the log_likelihood under a covariance model
-    
+
     computes the empirical expected log-likelihood (accounting for the
     normalization terms and scaling), allowing for universal comparison (beyond
     this software package)
@@ -34,7 +34,7 @@ def log_likelihood(emp_cov, precision):
 
     precision : 2D ndarray (n_features, n_features)
         The precision matrix of the covariance model to be tested
-    
+
     Returns
     -------
     sample mean of the log-likelihood
@@ -122,7 +122,7 @@ class EmpiricalCovariance(BaseEstimator):
             is computed.
 
         """
-        covariance = array2d(covariance)
+        covariance = check_array(covariance)
         # set covariance
         self.covariance_ = covariance
         # set precision

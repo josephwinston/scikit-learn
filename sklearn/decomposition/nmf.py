@@ -12,15 +12,14 @@ from __future__ import division
 
 from math import sqrt
 import warnings
-import numbers
 
 import numpy as np
 import scipy.sparse as sp
 from scipy.optimize import nnls
 
 from ..base import BaseEstimator, TransformerMixin
-from ..utils import atleast2d_or_csr, check_random_state, check_arrays
-from ..utils.extmath import randomized_svd, safe_sparse_dot
+from ..utils import check_random_state, check_array
+from ..utils.extmath import randomized_svd, safe_sparse_dot, squared_norm
 
 
 def safe_vstack(Xs):
@@ -35,8 +34,7 @@ def norm(x):
 
     See: http://fseoane.net/blog/2011/computing-the-vector-norm/
     """
-    x = x.ravel()
-    return np.sqrt(np.dot(x, x))
+    return sqrt(squared_norm(x))
 
 
 def trace_dot(X, Y):
@@ -392,15 +390,7 @@ class ProjectedGradientNMF(BaseEstimator, TransformerMixin):
             else:
                 init = 'random'
 
-        if isinstance(init, (numbers.Integral, np.random.RandomState)):
-            random_state = check_random_state(init)
-            init = "random"
-            warnings.warn("Passing a random seed or generator as init "
-                          "is deprecated and will be removed in 0.15. Use "
-                          "init='random' and random_state instead.",
-                          DeprecationWarning)
-        else:
-            random_state = self.random_state
+        random_state = self.random_state
 
         if init == 'nndsvd':
             W, H = _initialize_nmf(X, self.n_components_)
@@ -483,7 +473,7 @@ class ProjectedGradientNMF(BaseEstimator, TransformerMixin):
         data: array, [n_samples, n_components]
             Transformed data
         """
-        X = atleast2d_or_csr(X)
+        X = check_array(X, accept_sparse='csr')
         check_non_negative(X, "NMF.fit")
 
         n_samples, n_features = X.shape
@@ -540,7 +530,8 @@ class ProjectedGradientNMF(BaseEstimator, TransformerMixin):
         self.components_ = H
 
         if n_iter == self.max_iter:
-            warnings.warn("Iteration limit reached during fit")
+            warnings.warn("Iteration limit reached during fit. Solving for W exactly.")
+            return self.transform(X)
 
         return W
 
@@ -574,7 +565,7 @@ class ProjectedGradientNMF(BaseEstimator, TransformerMixin):
         data: array, [n_samples, n_components]
             Transformed data
         """
-        X, = check_arrays(X, sparse_format='csc')
+        X = check_array(X, accept_sparse='csc')
         Wt = np.zeros((self.n_components_, X.shape[0]))
         check_non_negative(X, "ProjectedGradientNMF.transform")
 

@@ -6,6 +6,7 @@
 # License: BSD 3 clause
 
 import warnings
+from distutils.version import LooseVersion
 
 import numpy as np
 from scipy import linalg
@@ -13,10 +14,15 @@ from scipy.linalg.lapack import get_lapack_funcs
 
 from .base import LinearModel, _pre_fit
 from ..base import RegressorMixin
-from ..utils import array2d, as_float_array, check_arrays
+from ..utils import as_float_array, check_array, check_X_y
 from ..cross_validation import _check_cv as check_cv
 from ..externals.joblib import Parallel, delayed
-from ..utils.arrayfuncs import solve_triangular
+
+import scipy
+solve_triangular_args = {}
+if LooseVersion(scipy.__version__) >= LooseVersion('0.12'):
+    solve_triangular_args = {'check_finite': False}
+
 
 premature = """ Orthogonal matching pursuit ended prematurely due to linear
 dependence in the dictionary. The requested precision might not have been met.
@@ -95,7 +101,11 @@ def _cholesky_omp(X, y, n_nonzero_coefs, tol=None, copy_X=True,
         if n_active > 0:
             # Updates the Cholesky decomposition of X' X
             L[n_active, :n_active] = np.dot(X[:, :n_active].T, X[:, lam])
-            solve_triangular(L[:n_active, :n_active], L[n_active, :n_active])
+            linalg.solve_triangular(L[:n_active, :n_active],
+                                    L[n_active, :n_active],
+                                    trans=0, lower=1,
+                                    overwrite_b=True,
+                                    **solve_triangular_args)
             v = nrm2(L[n_active, :n_active]) ** 2
             if 1 - v <= min_float:  # selected atoms are dependent
                 warnings.warn(premature, RuntimeWarning, stacklevel=2)
@@ -203,7 +213,11 @@ def _gram_omp(Gram, Xy, n_nonzero_coefs, tol_0=None, tol=None,
             break
         if n_active > 0:
             L[n_active, :n_active] = Gram[lam, :n_active]
-            solve_triangular(L[:n_active, :n_active], L[n_active, :n_active])
+            linalg.solve_triangular(L[:n_active, :n_active],
+                                    L[n_active, :n_active],
+                                    trans=0, lower=1,
+                                    overwrite_b=True,
+                                    **solve_triangular_args)
             v = nrm2(L[n_active, :n_active]) ** 2
             if 1 - v <= min_float:  # selected atoms are dependent
                 warnings.warn(premature, RuntimeWarning, stacklevel=3)
@@ -237,7 +251,7 @@ def _gram_omp(Gram, Xy, n_nonzero_coefs, tol_0=None, tol=None,
 
 
 def orthogonal_mp(X, y, n_nonzero_coefs=None, tol=None, precompute=False,
-                  copy_X=True, return_path=False, precompute_gram=None):
+                  copy_X=True, return_path=False):
     """Orthogonal Matching Pursuit (OMP)
 
     Solves n_targets Orthogonal Matching Pursuit problems.
@@ -307,19 +321,11 @@ def orthogonal_mp(X, y, n_nonzero_coefs=None, tol=None, precompute=False,
     http://www.cs.technion.ac.il/~ronrubin/Publications/KSVD-OMP-v2.pdf
 
     """
-    if precompute_gram is not None:
-        warnings.warn("precompute_gram will be removed in 0.15."
-                      " Use the precompute parameter.",
-                      DeprecationWarning, stacklevel=2)
-        precompute = precompute_gram
-
-    del precompute_gram
-
-    X = array2d(X, order='F', copy=copy_X)
+    X = check_array(X, order='F', copy=copy_X)
     copy_X = False
-    y = np.asarray(y)
     if y.ndim == 1:
-        y = y[:, np.newaxis]
+        y = y.reshape(-1, 1)
+    y = check_array(y)
     if y.shape[1] > 1:  # subsequent targets will be affected
         copy_X = True
     if n_nonzero_coefs is None and tol is None:
@@ -433,7 +439,7 @@ def orthogonal_mp_gram(Gram, Xy, n_nonzero_coefs=None, tol=None,
     http://www.cs.technion.ac.il/~ronrubin/Publications/KSVD-OMP-v2.pdf
 
     """
-    Gram = array2d(Gram, order='F', copy=copy_Gram)
+    Gram = check_array(Gram, order='F', copy=copy_Gram)
     Xy = np.asarray(Xy)
     if Xy.ndim > 1 and Xy.shape[1] > 1:
         # or subsequent target will be affected
@@ -504,23 +510,6 @@ class OrthogonalMatchingPursuit(LinearModel, RegressorMixin):
         very large. Note that if you already have such matrices, you can pass
         them directly to the fit method.
 
-    copy_X : bool, optional
-        Whether the design matrix X must be copied by the algorithm. A false
-        value is only helpful if X is already Fortran-ordered, otherwise a
-        copy is made anyway.
-        WARNING : will be deprecated in 0.15
-
-    copy_Gram : bool, optional
-        Whether the gram matrix must be copied by the algorithm. A false
-        value is only helpful if X is already Fortran-ordered, otherwise a
-        copy is made anyway.
-        WARNING : will be deprecated in 0.15
-
-    copy_Xy : bool, optional
-        Whether the covariance vector Xy must be copied by the algorithm.
-        If False, it may be overwritten.
-        WARNING : will be deprecated in 0.15
-
     Attributes
     ----------
     `coef_` : array, shape (n_features,) or (n_features, n_targets)
@@ -551,20 +540,15 @@ class OrthogonalMatchingPursuit(LinearModel, RegressorMixin):
     decomposition.sparse_encode
 
     """
-    def __init__(self, copy_X=None, copy_Gram=None, copy_Xy=None,
-                 n_nonzero_coefs=None, tol=None, fit_intercept=True,
-                 normalize=True, precompute='auto', precompute_gram=None):
+    def __init__(self, n_nonzero_coefs=None, tol=None, fit_intercept=True,
+                 normalize=True, precompute='auto'):
         self.n_nonzero_coefs = n_nonzero_coefs
         self.tol = tol
         self.fit_intercept = fit_intercept
         self.normalize = normalize
         self.precompute = precompute
-        self.precompute_gram = precompute_gram
-        self.copy_Gram = copy_Gram
-        self.copy_Xy = copy_Xy
-        self.copy_X = copy_X
 
-    def fit(self, X, y, Gram=None, Xy=None):
+    def fit(self, X, y):
         """Fit the model using X, y as training data.
 
         Parameters
@@ -575,90 +559,19 @@ class OrthogonalMatchingPursuit(LinearModel, RegressorMixin):
         y : array-like, shape (n_samples,) or (n_samples, n_targets)
             Target values.
 
-        Gram : array-like, shape (n_features, n_features) (optional)
-            Gram matrix of the input data: X.T * X
-            WARNING : will be deprecated in 0.15
-
-        Xy : array-like, shape (n_features,) or (n_features, n_targets)
-            (optional)
-            Input targets multiplied by X: X.T * y
-            WARNING : will be deprecated in 0.15
-
 
         Returns
         -------
         self: object
             returns an instance of self.
         """
-        X = array2d(X)
+        X = check_array(X)
         y = np.asarray(y)
         n_features = X.shape[1]
 
-        if self.precompute_gram is not None:
-            warnings.warn("precompute_gram will be removed in 0.15."
-                          " Use the precompute parameter.",
-                          DeprecationWarning, stacklevel=2)
-            precompute = self.precompute_gram
-        else:
-            precompute = self.precompute
-
-        if self.copy_Gram is not None:
-            warnings.warn("copy_Gram will be removed in 0.15."
-                          " Use the orthogonal_mp function for"
-                          " low level memory control.",
-                          DeprecationWarning, stacklevel=2)
-            copy_Gram = self.copy_Gram
-        else:
-            copy_Gram = True
-
-        if self.copy_Xy is not None:
-            warnings.warn("copy_Xy will be removed in 0.15."
-                          " Use the orthogonal_mp function for"
-                          " low level memory control.",
-                          DeprecationWarning, stacklevel=2)
-            copy_Xy = self.copy_Xy
-        else:
-            copy_Xy = True
-
-        if self.copy_X is not None:
-            warnings.warn("copy_X will be removed in 0.15."
-                          " Use the orthogonal_mp function for"
-                          " low level memory control.",
-                          DeprecationWarning, stacklevel=2)
-            copy_X = self.copy_X
-        else:
-            copy_X = True
-
-        if Gram is not None:
-            warnings.warn("Gram will be removed in 0.15."
-                          " Use the orthogonal_mp function for"
-                          " low level memory control.",
-                          DeprecationWarning, stacklevel=2)
-
-        if Xy is not None:
-            warnings.warn("Xy will be removed in 0.15."
-                          " Use the orthogonal_mp function for"
-                          " low level memory control.",
-                          DeprecationWarning, stacklevel=2)
-
-        if (Gram is not None or Xy is not None) and (self.fit_intercept
-                                                     or self.normalize):
-            warnings.warn('Mean subtraction (fit_intercept) and normalization '
-                          'cannot be applied on precomputed Gram and Xy '
-                          'matrices. Your precomputed values are ignored and '
-                          'recomputed. To avoid this, do the scaling yourself '
-                          'and call with fit_intercept and normalize set to '
-                          'False.', RuntimeWarning, stacklevel=2)
-            Gram, Xy = None, None
-
-        if Gram is not None:
-            precompute = Gram
-            if Xy is not None and copy_Xy:
-                Xy = Xy.copy()
-
         X, y, X_mean, y_mean, X_std, Gram, Xy = \
-            _pre_fit(X, y, Xy, precompute, self.normalize, self.fit_intercept,
-                     copy=copy_X)
+            _pre_fit(X, y, None, self.precompute, self.normalize,
+                     self.fit_intercept, copy=True)
 
         if y.ndim == 1:
             y = y[:, np.newaxis]
@@ -672,12 +585,14 @@ class OrthogonalMatchingPursuit(LinearModel, RegressorMixin):
 
         if Gram is False:
             self.coef_ = orthogonal_mp(X, y, self.n_nonzero_coefs_, self.tol,
-                                       precompute=False, copy_X=copy_X).T
+                                       precompute=False, copy_X=True).T
         else:
             norms_sq = np.sum(y ** 2, axis=0) if self.tol is not None else None
-            self.coef_ = orthogonal_mp_gram(Gram, Xy, self.n_nonzero_coefs_,
-                                            self.tol, norms_sq,
-                                            copy_Gram, True).T
+
+            self.coef_ = orthogonal_mp_gram(
+                Gram, Xy=Xy, n_nonzero_coefs=self.n_nonzero_coefs_,
+                tol=self.tol, norms_squared=norms_sq,
+                copy_Gram=True, copy_Xy=True).T
 
         self._set_intercept(X_mean, y_mean, X_std)
         return self
@@ -790,15 +705,15 @@ class OrthogonalMatchingPursuitCV(LinearModel, RegressorMixin):
 
     Attributes
     ----------
-    `n_nonzero_coefs_` : int
-        Estimated number of non-zero coefficients giving the best mean
-        squared error over the cross-validation folds.
+    `intercept_` : float or array, shape (n_targets,)
+        Independent term in decision function.
 
     `coef_` : array, shape (n_features,) or (n_features, n_targets)
-        parameter vector (w in the problem formulation).
+        Parameter vector (w in the problem formulation).
 
-    `intercept_` : float or array, shape (n_targets,)
-        independent term in decision function.
+    `n_nonzero_coefs_` : int
+        Estimated number of non-zero coefficients giving the best mean squared
+        error over the cross-validation folds.
 
     See also
     --------
@@ -839,8 +754,7 @@ class OrthogonalMatchingPursuitCV(LinearModel, RegressorMixin):
         self : object
             returns an instance of self.
         """
-        X = array2d(X)
-        X, y = check_arrays(X, y)
+        X, y = check_X_y(X, y)
         cv = check_cv(self.cv, X, y, classifier=False)
         max_iter = (min(max(int(0.1 * X.shape[1]), 5), X.shape[1])
                     if not self.max_iter
@@ -857,7 +771,6 @@ class OrthogonalMatchingPursuitCV(LinearModel, RegressorMixin):
         best_n_nonzero_coefs = np.argmin(mse_folds.mean(axis=0)) + 1
         self.n_nonzero_coefs_ = best_n_nonzero_coefs
         omp = OrthogonalMatchingPursuit(n_nonzero_coefs=best_n_nonzero_coefs,
-                                        copy_X=None,
                                         fit_intercept=self.fit_intercept,
                                         normalize=self.normalize)
         omp.fit(X, y)

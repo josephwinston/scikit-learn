@@ -7,14 +7,15 @@
 """Recursive feature elimination for feature ranking"""
 
 import numpy as np
-from ..utils import check_arrays, safe_sqr
+from ..utils import check_X_y, safe_sqr
 from ..base import BaseEstimator
 from ..base import MetaEstimatorMixin
 from ..base import clone
 from ..base import is_classifier
 from ..cross_validation import _check_cv as check_cv
+from ..cross_validation import _safe_split, _score
 from .base import SelectorMixin
-from ..metrics.scorer import _deprecate_loss_and_score_funcs
+from ..metrics.scorer import check_scoring
 
 
 class RFE(BaseEstimator, MetaEstimatorMixin, SelectorMixin):
@@ -52,7 +53,8 @@ class RFE(BaseEstimator, MetaEstimatorMixin, SelectorMixin):
 
     estimator_params : dict
         Parameters for the external estimator.
-        Useful for doing grid searches.
+        Useful for doing grid searches when an `RFE` object is passed as an
+        argument to, e.g., a `sklearn.grid_search.GridSearchCV` object.
 
     Attributes
     ----------
@@ -115,7 +117,7 @@ class RFE(BaseEstimator, MetaEstimatorMixin, SelectorMixin):
         y : array-like, shape = [n_samples]
             The target values.
         """
-        X, y = check_arrays(X, y, sparse_format="csc")
+        X, y = check_X_y(X, y, "csc")
         # Initialization
         n_features = X.shape[1]
         if self.n_features_to_select is None:
@@ -242,7 +244,8 @@ class RFECV(RFE, MetaEstimatorMixin):
 
     estimator_params : dict
         Parameters for the external estimator.
-        Useful for doing grid searches.
+        Useful for doing grid searches when an `RFE` object is passed as an
+        argument to, e.g., a `sklearn.grid_search.GridSearchCV` object.
 
     verbose : int, default=0
         Controls verbosity of output.
@@ -295,12 +298,11 @@ class RFECV(RFE, MetaEstimatorMixin):
            Mach. Learn., 46(1-3), 389--422, 2002.
     """
     def __init__(self, estimator, step=1, cv=None, scoring=None,
-                 loss_func=None, estimator_params={}, verbose=0):
+                 estimator_params={}, verbose=0):
         self.estimator = estimator
         self.step = step
         self.cv = cv
         self.scoring = scoring
-        self.loss_func = loss_func
         self.estimator_params = estimator_params
         self.verbose = verbose
 
@@ -318,19 +320,20 @@ class RFECV(RFE, MetaEstimatorMixin):
             Target values (integers for classification, real numbers for
             regression).
         """
-        X, y = check_arrays(X, y, sparse_format="csr")
+        X, y = check_X_y(X, y, "csr")
         # Initialization
         rfe = RFE(estimator=self.estimator, n_features_to_select=1,
                   step=self.step, estimator_params=self.estimator_params,
                   verbose=self.verbose - 1)
 
         cv = check_cv(self.cv, X, y, is_classifier(self.estimator))
+        scorer = check_scoring(self.estimator, scoring=self.scoring)
         scores = np.zeros(X.shape[1])
 
         # Cross-validation
         for n, (train, test) in enumerate(cv):
-            X_train, X_test = X[train], X[test]
-            y_train, y_test = y[train], y[test]
+            X_train, y_train = _safe_split(self.estimator, X, y, train)
+            X_test, y_test = _safe_split(self.estimator, X, y, test, train)
 
             # Compute a full ranking of the features
             ranking_ = rfe.fit(X_train, y_train).ranking_
@@ -339,15 +342,7 @@ class RFECV(RFE, MetaEstimatorMixin):
                 mask = np.where(ranking_ <= k + 1)[0]
                 estimator = clone(self.estimator)
                 estimator.fit(X_train[:, mask], y_train)
-
-                if self.loss_func is None and self.scoring is None:
-                    score = estimator.score(X_test[:, mask], y_test)
-                else:
-                    scorer = _deprecate_loss_and_score_funcs(
-                        loss_func=self.loss_func,
-                        scoring=self.scoring
-                    )
-                    score = scorer(estimator, X_test[:, mask], y_test)
+                score = _score(estimator, X_test[:, mask], y_test, scorer)
 
                 if self.verbose > 0:
                     print("Finished fold with %d / %d feature ranks, score=%f"
@@ -373,5 +368,7 @@ class RFECV(RFE, MetaEstimatorMixin):
         self.estimator_.set_params(**self.estimator_params)
         self.estimator_.fit(self.transform(X), y)
 
-        self.grid_scores_ = scores / n
+        # Fixing a normalization error, n is equal to len(cv) - 1
+        # here, the scores are normalized by len(cv)
+        self.grid_scores_ = scores / len(cv)
         return self

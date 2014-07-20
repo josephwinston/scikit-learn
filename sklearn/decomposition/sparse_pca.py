@@ -4,7 +4,7 @@
 
 import numpy as np
 
-from ..utils import check_random_state, array2d
+from ..utils import check_random_state, check_array
 from ..linear_model import ridge_regression
 from ..base import BaseEstimator, TransformerMixin
 from .dict_learning import dict_learning, dict_learning_online
@@ -102,7 +102,7 @@ class SparsePCA(BaseEstimator, TransformerMixin):
             Returns the instance itself.
         """
         random_state = check_random_state(self.random_state)
-        X = array2d(X)
+        X = check_array(X)
         if self.n_components is None:
             n_components = X.shape[1]
         else:
@@ -145,9 +145,10 @@ class SparsePCA(BaseEstimator, TransformerMixin):
         X_new array, shape (n_samples, n_components)
             Transformed data.
         """
+        X = check_array(X)
         ridge_alpha = self.ridge_alpha if ridge_alpha is None else ridge_alpha
         U = ridge_regression(self.components_.T, X.T, ridge_alpha,
-                             solver='dense_cholesky')
+                             solver='cholesky')
         s = np.sqrt((U ** 2).sum(axis=0))
         s[s == 0] = 1
         U /= s
@@ -247,7 +248,7 @@ class MiniBatchSparsePCA(SparsePCA):
             Returns the instance itself.
         """
         random_state = check_random_state(self.random_state)
-        X = array2d(X)
+        X = check_array(X)
         if self.n_components is None:
             n_components = X.shape[1]
         else:

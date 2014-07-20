@@ -28,9 +28,9 @@ not for you.
 
 The complexity of this implementation is linear in the number of
 mixture components and data points. With regards to the
-dimensionality, it is linear when using `spherical` or `diag` and
-quadratic/cubic when using `tied` or `full`. For `spherical` or `diag`
-it is O(n_states * n_points * dimension) and for `tied` or `full` it
+dimensionality, it is linear when using ``spherical`` or ``diag`` and
+quadratic/cubic when using ``tied`` or ``full``. For ``spherical`` or ``diag``
+it is O(n_states * n_points * dimension) and for ``tied`` or ``full`` it
 is O(n_states * n_points * dimension^2 + n_states * dimension^3) (it
 is necessary to invert the covariance/precision matrices and compute
 its determinant, hence the cubic term).
@@ -194,8 +194,8 @@ The updates
 
 The updates for mu essentially are just weighted expectations of
 :math:`X` regularized by the prior. We can see this by taking the
-gradient of the bound w.r.t. :math:`\nu_{\mu}` and setting it to zero. The
-gradient is
+gradient of the bound with regards to :math:`\nu_{\mu}` and setting it to zero.
+The gradient is
 
 .. math::
 

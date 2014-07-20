@@ -27,7 +27,7 @@ from .. import __version__
 from ..externals import six
 from ..externals.six import u, b
 from ..externals.six.moves import range, zip
-from ..utils import atleast2d_or_csr
+from ..utils import check_array
 
 
 def load_svmlight_file(f, n_features=None, dtype=np.float64,
@@ -130,12 +130,34 @@ def _gen_open(f):
         return open(f, "rb")
 
 
+def _frombuffer(x, dtype):
+    # np.frombuffer doesn't like zero-length buffers in older NumPy
+    if len(x):
+        return np.frombuffer(x, dtype=dtype)
+    else:
+        return np.empty(0, dtype=dtype)
+
+
 def _open_and_load(f, dtype, multilabel, zero_based, query_id):
     if hasattr(f, "read"):
-        return _load_svmlight_file(f, dtype, multilabel, zero_based, query_id)
+        actual_dtype, data, ind, indptr, labels, query = \
+            _load_svmlight_file(f, dtype, multilabel, zero_based, query_id)
     # XXX remove closing when Python 2.7+/3.1+ required
-    with closing(_gen_open(f)) as f:
-        return _load_svmlight_file(f, dtype, multilabel, zero_based, query_id)
+    else:
+        with closing(_gen_open(f)) as f:
+            actual_dtype, data, ind, indptr, labels, query = \
+                _load_svmlight_file(f, dtype, multilabel, zero_based, query_id)
+
+    # convert from array.array, give data the right dtype
+    if not multilabel:
+        labels = _frombuffer(labels, np.float64)
+    data = _frombuffer(data, actual_dtype)
+    indices = _frombuffer(ind, np.intc)
+    indptr = np.frombuffer(indptr, dtype=np.intc)   # never empty
+    query = _frombuffer(query, np.intc)
+
+    data = np.asarray(data, dtype=dtype)    # no-op for float{32,64}
+    return data, indices, indptr, labels, query
 
 
 def load_svmlight_files(files, n_features=None, dtype=np.float64,
@@ -334,7 +356,7 @@ def dump_svmlight_file(X, y, f, zero_based=True, comment=None, query_id=None):
         raise ValueError("expected y of shape (n_samples,), got %r"
                          % (y.shape,))
 
-    Xval = atleast2d_or_csr(X)
+    Xval = check_array(X, accept_sparse='csr')
     if Xval.shape[0] != y.shape[0]:
         raise ValueError("X.shape[0] and y.shape[0] should be the same, got"
                          " %r and %r instead." % (Xval.shape[0], y.shape[0]))

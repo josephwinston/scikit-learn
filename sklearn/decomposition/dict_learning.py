@@ -17,7 +17,7 @@ from numpy.lib.stride_tricks import as_strided
 from ..base import BaseEstimator, TransformerMixin
 from ..externals.joblib import Parallel, delayed, cpu_count
 from ..externals.six.moves import zip
-from ..utils import array2d, check_random_state, gen_even_slices
+from ..utils import check_array, check_random_state, gen_even_slices
 from ..utils.extmath import randomized_svd, row_norms
 from ..linear_model import Lasso, orthogonal_mp_gram, LassoLars, Lars
 
@@ -214,8 +214,8 @@ def sparse_encode(X, dictionary, gram=None, cov=None, algorithm='lasso_lars',
     sklearn.linear_model.Lasso
     SparseCoder
     """
-    dictionary = array2d(dictionary)
-    X = array2d(X)
+    dictionary = check_array(dictionary)
+    X = check_array(X)
     n_samples, n_features = X.shape
     n_components = dictionary.shape[0]
 
@@ -228,7 +228,7 @@ def sparse_encode(X, dictionary, gram=None, cov=None, algorithm='lasso_lars',
     if algorithm in ('lars', 'omp'):
         regularization = n_nonzero_coefs
         if regularization is None:
-            regularization = max(n_features / 10, 1)
+            regularization = min(max(n_features / 10, 1), n_components)
     else:
         regularization = alpha
         if regularization is None:
@@ -510,7 +510,7 @@ def dict_learning_online(X, n_components=2, alpha=1, n_iter=100,
     n_components : int,
         Number of dictionary atoms to extract.
 
-    alpha : int,
+    alpha : float,
         Sparsity controlling parameter.
 
     n_iter : int,
@@ -716,7 +716,7 @@ class SparseCodingMixin(TransformerMixin):
 
         """
         # XXX : kwargs is not documented
-        X = array2d(X)
+        X = check_array(X)
         n_samples, n_features = X.shape
 
         code = sparse_encode(
@@ -835,7 +835,7 @@ class DictionaryLearning(BaseEstimator, SparseCodingMixin):
     n_components : int,
         number of dictionary elements to extract
 
-    alpha : int,
+    alpha : float,
         sparsity controlling parameter
 
     max_iter : int,
@@ -952,7 +952,7 @@ class DictionaryLearning(BaseEstimator, SparseCodingMixin):
             Returns the object itself
         """
         random_state = check_random_state(self.random_state)
-        X = array2d(X)
+        X = check_array(X)
         if self.n_components is None:
             n_components = X.shape[1]
         else:
@@ -988,7 +988,7 @@ class MiniBatchDictionaryLearning(BaseEstimator, SparseCodingMixin):
     n_components : int,
         number of dictionary elements to extract
 
-    alpha : int,
+    alpha : float,
         sparsity controlling parameter
 
     n_iter : int,
@@ -1114,21 +1114,22 @@ class MiniBatchDictionaryLearning(BaseEstimator, SparseCodingMixin):
             Returns the instance itself.
         """
         random_state = check_random_state(self.random_state)
-        X = array2d(X)
+        X = check_array(X)
         if self.n_components is None:
             n_components = X.shape[1]
         else:
             n_components = self.n_components
 
         U, (A, B) = dict_learning_online(X, n_components, self.alpha,
-                                 n_iter=self.n_iter, return_code=False,
-                                 method=self.fit_algorithm,
-                                 n_jobs=self.n_jobs,
-                                 dict_init=self.dict_init,
-                                 batch_size=self.batch_size,
-                                 shuffle=self.shuffle, verbose=self.verbose,
-                                 random_state=random_state,
-                                 return_inner_stats=True)
+                                         n_iter=self.n_iter, return_code=False,
+                                         method=self.fit_algorithm,
+                                         n_jobs=self.n_jobs,
+                                         dict_init=self.dict_init,
+                                         batch_size=self.batch_size,
+                                         shuffle=self.shuffle,
+                                         verbose=self.verbose,
+                                         random_state=random_state,
+                                         return_inner_stats=True)
         self.components_ = U
         # Keep track of the state of the algorithm to be able to do
         # some online fitting (partial_fit)
@@ -1158,7 +1159,7 @@ class MiniBatchDictionaryLearning(BaseEstimator, SparseCodingMixin):
         """
         if not hasattr(self, 'random_state_'):
             self.random_state_ = check_random_state(self.random_state)
-        X = array2d(X)
+        X = check_array(X)
         if hasattr(self, 'components_'):
             dict_init = self.components_
         else:
@@ -1167,15 +1168,17 @@ class MiniBatchDictionaryLearning(BaseEstimator, SparseCodingMixin):
         if iter_offset is None:
             iter_offset = getattr(self, 'iter_offset_', 0)
         U, (A, B) = dict_learning_online(X, self.n_components, self.alpha,
-                                 n_iter=self.n_iter,
-                                 method=self.fit_algorithm,
-                                 n_jobs=self.n_jobs, dict_init=dict_init,
-                                 batch_size=len(X), shuffle=False,
-                                 verbose=self.verbose, return_code=False,
-                                 iter_offset=iter_offset,
-                                 random_state=self.random_state_,
-                                 return_inner_stats=True,
-                                 inner_stats=inner_stats)
+                                         n_iter=self.n_iter,
+                                         method=self.fit_algorithm,
+                                         n_jobs=self.n_jobs,
+                                         dict_init=dict_init,
+                                         batch_size=len(X), shuffle=False,
+                                         verbose=self.verbose,
+                                         return_code=False,
+                                         iter_offset=iter_offset,
+                                         random_state=self.random_state_,
+                                         return_inner_stats=True,
+                                         inner_stats=inner_stats)
         self.components_ = U
 
         # Keep track of the state of the algorithm to be able to do

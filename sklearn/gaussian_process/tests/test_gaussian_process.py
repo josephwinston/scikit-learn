@@ -36,7 +36,7 @@ def test_1d(regr=regression.constant, corr=correlation.squared_exponential,
     y2_pred, MSE2 = gp.predict(X2, eval_MSE=True)
 
     assert_true(np.allclose(y_pred, y) and np.allclose(MSE, 0.)
-        and np.allclose(MSE2, 0., atol=10))
+                and np.allclose(MSE2, 0., atol=10))
 
 
 def test_2d(regr=regression.constant, corr=correlation.squared_exponential,
@@ -58,18 +58,24 @@ def test_2d(regr=regression.constant, corr=correlation.squared_exponential,
                   [-2.87600388, 6.74310541],
                   [5.21301203, 4.26386883]])
     y = g(X).ravel()
+
+    thetaL = [1e-4] * 2
+    thetaU = [1e-1] * 2
     gp = GaussianProcess(regr=regr, corr=corr, beta0=beta0,
-                         theta0=[1e-2] * 2, thetaL=[1e-4] * 2,
-                         thetaU=[1e-1] * 2,
+                         theta0=[1e-2] * 2, thetaL=thetaL,
+                         thetaU=thetaU,
                          random_start=random_start, verbose=False)
     gp.fit(X, y)
     y_pred, MSE = gp.predict(X, eval_MSE=True)
 
     assert_true(np.allclose(y_pred, y) and np.allclose(MSE, 0.))
 
+    assert_true(np.all(gp.theta_ >= thetaL)) # Lower bounds of hyperparameters
+    assert_true(np.all(gp.theta_ <= thetaU)) # Upper bounds of hyperparameters
+
 
 def test_2d_2d(regr=regression.constant, corr=correlation.squared_exponential,
-            random_start=10, beta0=None):
+               random_start=10, beta0=None):
     """
     MLE estimation of a two-dimensional Gaussian Process model accounting for
     anisotropy. Check random start optimization.

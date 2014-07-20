@@ -7,31 +7,63 @@ example files.
 Files that generate images should start with 'plot'
 
 """
+from __future__ import division, print_function
 from time import time
+import ast
 import os
 import re
 import shutil
 import traceback
 import glob
 import sys
-from StringIO import StringIO
-import cPickle
-import urllib2
 import gzip
 import posixpath
 import subprocess
 
-try:
-    from PIL import Image
-except:
-    import Image
 
-import matplotlib
-matplotlib.use('Agg')
+# Try Python 2 first, otherwise load from Python 3
+try:
+    from StringIO import StringIO
+    import cPickle as pickle
+    import urllib2 as urllib
+    from urllib2 import HTTPError, URLError
+except ImportError:
+    from io import StringIO
+    import pickle
+    import urllib.request
+    import urllib.error
+    import urllib.parse
+    from urllib.error import HTTPError, URLError
+
+
+try:
+    # Python 2 built-in
+    execfile
+except NameError:
+    def execfile(filename, global_vars=None, local_vars=None):
+        with open(filename) as f:
+            code = compile(f.read(), filename, 'exec')
+            exec(code, global_vars, local_vars)
+
+try:
+    basestring
+except NameError:
+    basestring = str
 
 import token
 import tokenize
 import numpy as np
+
+try:
+    # make sure that the Agg backend is set before importing any
+    # matplotlib
+    import matplotlib
+    matplotlib.use('Agg')
+except ImportError:
+    # this script can be imported by nosetest to find tests to run: we should not
+    # impose the matplotlib requirement in that case.
+    pass
+
 
 from sklearn.externals import joblib
 
@@ -59,8 +91,13 @@ class Tee(object):
 def _get_data(url):
     """Helper function to get data over http or from a local file"""
     if url.startswith('http://'):
-        resp = urllib2.urlopen(url)
-        encoding = resp.headers.dict.get('content-encoding', 'plain')
+        # Try Python 2, use Python 3 on exception
+        try:
+            resp = urllib.urlopen(url)
+            encoding = resp.headers.dict.get('content-encoding', 'plain')
+        except AttributeError:
+            resp = urllib.request.urlopen(url)
+            encoding = resp.headers.get('content-encoding', 'plain')
         data = resp.read()
         if encoding == 'plain':
             pass
@@ -151,6 +188,10 @@ def parse_sphinx_searchindex(searchindex):
 
         return dict_out
 
+    # Make sure searchindex uses UTF-8 encoding
+    if hasattr(searchindex, 'decode'):
+        searchindex = searchindex.decode('UTF-8')
+
     # parse objects
     query = 'objects:'
     pos = searchindex.find(query)
@@ -227,7 +268,7 @@ class SphinxDocLinkResolver(object):
         if full_name in self._searchindex['objects']:
             value = self._searchindex['objects'][full_name]
             if isinstance(value, dict):
-                value = value[value.keys()[0]]
+                value = value[next(iter(value.keys()))]
             fname_idx = value[0]
         elif cobj['module_short'] in self._searchindex['objects']:
             value = self._searchindex['objects'][cobj['module_short']]
@@ -243,6 +284,9 @@ class SphinxDocLinkResolver(object):
             else:
                 link = posixpath.join(self.doc_url, fname)
 
+            if hasattr(link, 'decode'):
+                link = link.decode('utf-8', 'replace')
+
             if link in self._page_cache:
                 html = self._page_cache[link]
             else:
@@ -255,9 +299,16 @@ class SphinxDocLinkResolver(object):
                 for mod in self.extra_modules_test:
                     comb_names.append(mod + '.' + cobj['name'])
             url = False
+            if hasattr(html, 'decode'):
+                # Decode bytes under Python 3
+                html = html.decode('utf-8', 'replace')
+
             for comb_name in comb_names:
-                if html.find(comb_name) >= 0:
-                    url = link + '#' + comb_name
+                if hasattr(comb_name, 'decode'):
+                    # Decode bytes under Python 3
+                    comb_name = comb_name.decode('utf-8', 'replace')
+                if comb_name in html:
+                    url = link + u'#' + comb_name
             link = url
         else:
             link = False
@@ -336,7 +387,7 @@ plot_rst_template = """
 .. literalinclude:: %(fname)s
     :lines: %(end_row)s-
 
-**Total running time of the example:** %(time_elapsed) .2f seconds 
+**Total running time of the example:** %(time_elapsed) .2f seconds
 (%(time_m) .0f minutes %(time_s) .2f seconds)
     """
 
@@ -364,24 +415,25 @@ SINGLE_IMAGE = """
 # thumbnails for the front page of the scikit-learn home page.
 # key: first image in set
 # values: (number of plot in set, height of thumbnail)
-carousel_thumbs = {'plot_classifier_comparison_1.png': (1, 600),
-                   'plot_outlier_detection_1.png': (3, 372),
-                   'plot_gp_regression_1.png': (2, 250),
-                   'plot_adaboost_twoclass_1.png': (1, 372),
-                   'plot_compare_methods_1.png': (1, 349)}
+carousel_thumbs = {'plot_classifier_comparison_001.png': (1, 600),
+                   'plot_outlier_detection_001.png': (3, 372),
+                   'plot_gp_regression_001.png': (2, 250),
+                   'plot_adaboost_twoclass_001.png': (1, 372),
+                   'plot_compare_methods_001.png': (1, 349)}
 
 
 def extract_docstring(filename, ignore_heading=False):
     """ Extract a module-level docstring, if any
     """
-    lines = file(filename).readlines()
+    lines = open(filename).readlines()
     start_row = 0
     if lines[0].startswith('#!'):
         lines.pop(0)
         start_row = 1
     docstring = ''
     first_par = ''
-    tokens = tokenize.generate_tokens(iter(lines).next)
+    line_iterator = iter(lines)
+    tokens = tokenize.generate_tokens(lambda: next(line_iterator))
     for tok_type, tok_content, _, (erow, _), _ in tokens:
         tok_type = token.tok_name[tok_type]
         if tok_type in ('NEWLINE', 'COMMENT', 'NL', 'INDENT', 'DEDENT'):
@@ -426,7 +478,7 @@ def generate_example_rst(app):
         os.makedirs(root_dir)
 
     # we create an index.rst with all examples
-    fhindex = file(os.path.join(root_dir, 'index.rst'), 'w')
+    fhindex = open(os.path.join(root_dir, 'index.rst'), 'w')
     #Note: The sidebar button has been removed from the examples page for now
     #      due to how it messes up the layout. Will be fixed at a later point
     fhindex.write("""\
@@ -578,12 +630,13 @@ Examples
 def extract_line_count(filename, target_dir):
     # Extract the line count of a file
     example_file = os.path.join(target_dir, filename)
-    lines = file(example_file).readlines()
+    lines = open(example_file).readlines()
     start_row = 0
     if lines and lines[0].startswith('#!'):
         lines.pop(0)
         start_row = 1
-    tokens = tokenize.generate_tokens(lines.__iter__().next)
+    line_iterator = iter(lines)
+    tokens = tokenize.generate_tokens(lambda: next(line_iterator))
     check_docstring = True
     erow_docstring = 0
     for tok_type, _, _, (erow, _), _ in tokens:
@@ -598,7 +651,7 @@ def extract_line_count(filename, target_dir):
 
 def line_count_sort(file_list, target_dir):
     # Sort the list of examples by line-count
-    new_list = filter(lambda x: x.endswith('.py'), file_list)
+    new_list = [x for x in file_list if x.endswith('.py')]
     unsorted = np.zeros(shape=(len(new_list), 2))
     unsorted = unsorted.astype(np.object)
     for count, exmpl in enumerate(new_list):
@@ -622,19 +675,20 @@ def generate_dir_rst(dir, fhindex, example_dir, root_dir, plot_gallery):
         target_dir = root_dir
         src_dir = example_dir
     if not os.path.exists(os.path.join(src_dir, 'README.txt')):
-        print 80 * '_'
-        print ('Example directory %s does not have a README.txt file' %
+        print(80 * '_')
+        print('Example directory %s does not have a README.txt file' %
                src_dir)
-        print 'Skipping this directory'
-        print 80 * '_'
+        print('Skipping this directory')
+        print(80 * '_')
         return
+
     fhindex.write("""
 
 
 %s
 
 
-""" % file(os.path.join(src_dir, 'README.txt')).read())
+""" % open(os.path.join(src_dir, 'README.txt')).read())
     if not os.path.exists(target_dir):
         os.makedirs(target_dir)
     sorted_listdir = line_count_sort(os.listdir(src_dir),
@@ -698,6 +752,11 @@ def make_thumbnail(in_fname, out_fname, width, height):
     """Make a thumbnail with the same aspect ratio centered in an
        image with a given width and height
     """
+    # local import to avoid testing dependency on PIL:
+    try:
+        from PIL import Image
+    except ImportError:
+        import Image
     img = Image.open(in_fname)
     width_in, height_in = img.size
     scale_w = width / float(width_in)
@@ -716,7 +775,7 @@ def make_thumbnail(in_fname, out_fname, width, height):
 
     # insert centered
     thumb = Image.new('RGB', (width, height), (255, 255, 255))
-    pos_insert = ((width - width_sc) / 2, (height - height_sc) / 2)
+    pos_insert = ((width - width_sc) // 2, (height - height_sc) // 2)
     thumb.paste(img, pos_insert)
 
     thumb.save(out_fname)
@@ -727,7 +786,6 @@ def make_thumbnail(in_fname, out_fname, width, height):
             subprocess.call(["optipng", "-quiet", "-o", "9", out_fname])
         except Exception:
             warnings.warn('Install optipng to reduce the size of the generated images')
-
 
 
 def get_short_module_name(module_name, obj_name):
@@ -745,11 +803,87 @@ def get_short_module_name(module_name, obj_name):
     return short_name
 
 
+class NameFinder(ast.NodeVisitor):
+    """Finds the longest form of variable names and their imports in code
+
+    Only retains names from imported modules.
+    """
+
+    def __init__(self):
+        super(NameFinder, self).__init__()
+        self.imported_names = {}
+        self.accessed_names = set()
+
+    def visit_Import(self, node, prefix=''):
+        for alias in node.names:
+            local_name = alias.asname or alias.name
+            self.imported_names[local_name] = prefix + alias.name
+
+    def visit_ImportFrom(self, node):
+        self.visit_Import(node, node.module + '.')
+
+    def visit_Name(self, node):
+        self.accessed_names.add(node.id)
+
+    def visit_Attribute(self, node):
+        attrs = []
+        while isinstance(node, ast.Attribute):
+            attrs.append(node.attr)
+            node = node.value
+
+        if isinstance(node, ast.Name):
+            # This is a.b, not e.g. a().b
+            attrs.append(node.id)
+            self.accessed_names.add('.'.join(reversed(attrs)))
+        else:
+            # need to get a in a().b
+            self.visit(node)
+
+    def get_mapping(self):
+        for name in self.accessed_names:
+            local_name = name.split('.', 1)[0]
+            remainder = name[len(local_name):]
+            if local_name in self.imported_names:
+                # Join import path to relative path
+                full_name = self.imported_names[local_name] + remainder
+                yield name, full_name
+
+
+def identify_names(code):
+    """Builds a codeobj summary by identifying and resovles used names
+
+    >>> code = '''
+    ... from a.b import c
+    ... import d as e
+    ... print(c)
+    ... e.HelloWorld().f.g
+    ... '''
+    >>> for name, o in sorted(identify_names(code).items()):
+    ...     print(name, o['name'], o['module'], o['module_short'])
+    c c a.b a.b
+    e.HelloWorld HelloWorld d d
+    """
+    finder = NameFinder()
+    finder.visit(ast.parse(code))
+
+    example_code_obj = {}
+    for name, full_name in finder.get_mapping():
+        # name is as written in file (e.g. np.asarray)
+        # full_name includes resolved import path (e.g. numpy.asarray)
+        module, attribute = full_name.rsplit('.', 1)
+        # get shortened module name
+        module_short = get_short_module_name(module, attribute)
+        cobj = {'name': attribute, 'module': module,
+                'module_short': module_short}
+        example_code_obj[name] = cobj
+    return example_code_obj
+
+
 def generate_file_rst(fname, target_dir, src_dir, root_dir, plot_gallery):
     """ Generate the rst file for a given example.
     """
     base_image_name = os.path.splitext(fname)[0]
-    image_fname = '%s_%%s.png' % base_image_name
+    image_fname = '%s_%%03d.png' % base_image_name
 
     this_template = rst_template
     last_dir = os.path.split(src_dir)[-1]
@@ -796,7 +930,7 @@ def generate_file_rst(fname, target_dir, src_dir, root_dir, plot_gallery):
         if not os.path.exists(first_image_file) or \
            os.stat(first_image_file).st_mtime <= os.stat(src_file).st_mtime:
             # We need to execute the code
-            print 'plotting %s' % fname
+            print('plotting %s' % fname)
             t0 = time()
             import matplotlib.pyplot as plt
             plt.close('all')
@@ -814,80 +948,6 @@ def generate_file_rst(fname, target_dir, src_dir, root_dir, plot_gallery):
                 time_elapsed = time() - t0
                 sys.stdout = orig_stdout
                 my_stdout = my_buffer.getvalue()
-
-                # get variables so we can later add links to the documentation
-                example_code_obj = {}
-                for var_name, var in my_globals.iteritems():
-                    if not hasattr(var, '__module__'):
-                        continue
-                    if not isinstance(var.__module__, basestring):
-                        continue
-                    if var.__module__.split('.')[0] not in DOCMODULES:
-                        continue
-
-                    # get the type as a string with other things stripped
-                    tstr = str(type(var))
-                    tstr = (tstr[tstr.find('\'')
-                            + 1:tstr.rfind('\'')].split('.')[-1])
-                    # get shortened module name
-                    module_short = get_short_module_name(var.__module__,
-                                                         tstr)
-                    cobj = {'name': tstr, 'module': var.__module__,
-                            'module_short': module_short,
-                            'obj_type': 'object'}
-                    example_code_obj[var_name] = cobj
-
-                # find functions so we can later add links to the documentation
-                funregex = re.compile('[\w.]+\(')
-                with open(src_file, 'rt') as fid:
-                    for line in fid.readlines():
-                        if line.startswith('#'):
-                            continue
-                        for match in funregex.findall(line):
-                            fun_name = match[:-1]
-
-                            try:
-                                exec('this_fun = %s' % fun_name, my_globals)
-                            except Exception as err:
-                                # Here, we were not able to execute the
-                                # previous statement, either because the
-                                # fun_name was not a function but a statement
-                                # (print), or because the regexp didn't
-                                # catch the whole function name :
-                                #    eg:
-                                #       X = something().blah()
-                                # will work for something, but not blah.
-
-                                continue
-                            this_fun = my_globals['this_fun']
-                            if not callable(this_fun):
-                                continue
-                            if not hasattr(this_fun, '__module__'):
-                                continue
-                            if not isinstance(this_fun.__module__, basestring):
-                                continue
-                            if (this_fun.__module__.split('.')[0]
-                                    not in DOCMODULES):
-                                continue
-
-                            # get shortened module name
-                            fun_name_short = fun_name.split('.')[-1]
-                            module_short = get_short_module_name(
-                                this_fun.__module__, fun_name_short)
-                            cobj = {'name': fun_name_short,
-                                    'module': this_fun.__module__,
-                                    'module_short': module_short,
-                                    'obj_type': 'function'}
-                            example_code_obj[fun_name] = cobj
-                fid.close()
-
-                if len(example_code_obj) > 0:
-                    # save the dictionary, so we can later add hyperlinks
-                    codeobj_fname = example_file[:-3] + '_codeobj.pickle'
-                    with open(codeobj_fname, 'wb') as fid:
-                        cPickle.dump(example_code_obj, fid,
-                                     cPickle.HIGHEST_PROTOCOL)
-                    fid.close()
 
                 if '__doc__' in my_globals:
                     # The __doc__ is often printed in the example, we
@@ -917,19 +977,20 @@ def generate_file_rst(fname, target_dir, src_dir, root_dir, plot_gallery):
                     plt.savefig(image_path % fig_num)
                     figure_list.append(image_fname % fig_num)
             except:
-                print 80 * '_'
-                print '%s is not compiling:' % fname
+                print(80 * '_')
+                print('%s is not compiling:' % fname)
                 traceback.print_exc()
-                print 80 * '_'
+                print(80 * '_')
             finally:
                 os.chdir(cwd)
                 sys.stdout = orig_stdout
 
-            print " - time elapsed : %.2g sec" % time_elapsed
+            print(" - time elapsed : %.2g sec" % time_elapsed)
         else:
             figure_list = [f[len(image_dir):]
-                            for f in glob.glob(image_path % '[1-9]')]
-                            #for f in glob.glob(image_path % '*')]
+                           for f in glob.glob(image_path.replace("%03d",
+                                                '[0-9][0-9][0-9]'))]
+        figure_list.sort()
 
         # generate thumb file
         this_template = plot_rst_template
@@ -977,13 +1038,20 @@ def generate_file_rst(fname, target_dir, src_dir, root_dir, plot_gallery):
     f.write(this_template % locals())
     f.flush()
 
+    # save variables so we can later add links to the documentation
+    example_code_obj = identify_names(open(example_file).read())
+    if example_code_obj:
+        codeobj_fname = example_file[:-3] + '_codeobj.pickle'
+        with open(codeobj_fname, 'wb') as fid:
+            pickle.dump(example_code_obj, fid, pickle.HIGHEST_PROTOCOL)
+
 
 def embed_code_links(app, exception):
     """Embed hyperlinks to documentation into example code"""
     try:
         if exception is not None:
             return
-        print 'Embedding documentation hyperlinks in examples..'
+        print('Embedding documentation hyperlinks in examples..')
 
         # Add resolvers for the packages for which we want to show links
         doc_resolvers = {}
@@ -1010,7 +1078,7 @@ def embed_code_links(app, exception):
 
         for dirpath, _, filenames in os.walk(html_example_dir):
             for fname in filenames:
-                print '\tprocessing: %s' % fname
+                print('\tprocessing: %s' % fname)
                 full_fname = os.path.join(html_example_dir, dirpath, fname)
                 subpath = dirpath[len(html_example_dir) + 1:]
                 pickle_fname = os.path.join(example_dir, subpath,
@@ -1019,11 +1087,11 @@ def embed_code_links(app, exception):
                 if os.path.exists(pickle_fname):
                     # we have a pickle file with the objects to embed links for
                     with open(pickle_fname, 'rb') as fid:
-                        example_code_obj = cPickle.load(fid)
+                        example_code_obj = pickle.load(fid)
                     fid.close()
                     str_repl = {}
                     # generate replacement strings with the links
-                    for name, cobj in example_code_obj.iteritems():
+                    for name, cobj in example_code_obj.items():
                         this_module = cobj['module'].split('.')[0]
 
                         if this_module not in doc_resolvers:
@@ -1033,30 +1101,38 @@ def embed_code_links(app, exception):
                                                                   full_fname)
                         if link is not None:
                             parts = name.split('.')
-                            name_html = orig_pattern % parts[0]
-                            for part in parts[1:]:
-                                name_html += period + orig_pattern % part
+                            name_html = period.join(orig_pattern % part
+                                                    for part in parts)
                             str_repl[name_html] = link_pattern % (link, name_html)
                     # do the replacement in the html file
+
+                    # ensure greediness
+                    names = sorted(str_repl, key=len, reverse=True)
+                    expr = re.compile(r'(?<!\.)\b' +  # don't follow . or word
+                                      '|'.join(re.escape(name)
+                                               for name in names))
+
+                    def substitute_link(match):
+                        return str_repl[match.group()]
+
                     if len(str_repl) > 0:
                         with open(full_fname, 'rb') as fid:
                             lines_in = fid.readlines()
                         with open(full_fname, 'wb') as fid:
                             for line in lines_in:
                                 line = line.decode('utf-8')
-                                for name, link in str_repl.iteritems():
-                                    line = line.replace(name, link)
+                                line = expr.sub(substitute_link, line)
                                 fid.write(line.encode('utf-8'))
-    except urllib2.HTTPError, e:
-        print ("The following HTTP Error has occurred:\n")
-        print e.code
-    except urllib2.URLError, e:
-        print ("\n...\n"
-               "Warning: Embedding the documentation hyperlinks requires "
-               "internet access.\nPlease check your network connection.\n"
-               "Unable to continue embedding due to a URL Error: \n")
-        print e.args
-    print '[done]'
+    except HTTPError as e:
+        print("The following HTTP Error has occurred:\n")
+        print(e.code)
+    except URLError as e:
+        print("\n...\n"
+              "Warning: Embedding the documentation hyperlinks requires "
+              "internet access.\nPlease check your network connection.\n"
+              "Unable to continue embedding due to a URL Error: \n")
+        print(e.args)
+    print('[done]')
 
 
 def setup(app):
@@ -1086,3 +1162,8 @@ def setup(app):
         for filename in filelist:
             if filename.endswith('png'):
                 os.remove(os.path.join(build_image_dir, filename))
+
+
+def setup_module():
+    # HACK: Stop nosetests running setup() above
+    pass
